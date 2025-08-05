@@ -2,322 +2,420 @@ package com.example.hotelbooking.controller;
 
 import com.example.hotelbooking.dto.BookingRequestDTO;
 import com.example.hotelbooking.model.Booking;
-import com.example.hotelbooking.model.PaymentMethod;
 import com.example.hotelbooking.model.Room;
+import com.example.hotelbooking.model.User;
 import com.example.hotelbooking.service.BookingService;
-import com.example.hotelbooking.service.RoomService;
 import com.example.hotelbooking.service.UserService;
-import com.example.hotelbooking.security.CustomUserDetails;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.bind.annotation.*;
 
 import jakarta.validation.Valid;
-
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.Authentication;
-import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
-import org.springframework.validation.BindingResult;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.servlet.mvc.support.RedirectAttributes;
-
 import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
-@RequestMapping("/bookings")
+@RequestMapping("/api/bookings")
+@CrossOrigin(origins = "*")
 public class BookingController {
 
     @Autowired
     private BookingService bookingService;
 
     @Autowired
-    private RoomService roomService;
-    
-    @Autowired
     private UserService userService;
 
-    // ====== REST API Endpoints ======
-    @PreAuthorize("hasRole('CUSTOMER')")
-    @PostMapping("/api")
-    @ResponseBody
-    public ResponseEntity<Booking> createBookingAPI(@RequestBody @Valid BookingRequestDTO request, Authentication authentication) {
+    /**
+     * Create a new booking
+     */
+    @PostMapping
+    public ResponseEntity<?> createBooking(@Valid @RequestBody BookingRequestDTO bookingRequest) {
         try {
-            // Verify the user is booking for themselves
-            CustomUserDetails userDetails = (CustomUserDetails) authentication.getPrincipal();
-            if (!userDetails.getUserId().equals(request.getUserId())) {
-                return ResponseEntity.badRequest().build();
-            }
-
             Booking booking = bookingService.createBooking(
-                request.getUserId(),
-                request.getRoomId(),
-                request.getCheckIn(),
-                request.getCheckOut(),
-                request.getPaymentMethod()
-            );
-            return ResponseEntity.ok(booking);
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
-    }
-
-    @PreAuthorize("hasRole('ADMIN')")
-    @GetMapping("/api")
-    @ResponseBody
-    public List<Booking> getAllBookingsAPI() {
-        return bookingService.getAllBookings();
-    }
-
-    @PreAuthorize("hasRole('ADMIN')")
-    @GetMapping("/api/{id}")
-    @ResponseBody
-    public ResponseEntity<Booking> getBookingByIdAPI(@PathVariable Long id) {
-        try {
-            Booking booking = bookingService.getBookingById(id);
-            return ResponseEntity.ok(booking);
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-//    @PreAuthorize("hasAnyRole('CUSTOMER', 'ADMIN')")
-//    @GetMapping("/api/user/{userId}")
-//    @ResponseBody
-//    public ResponseEntity<List<Booking>> getBookingsByUserAPI(@PathVariable Long userId, Authentication authentication) {
-//        // Customers can only view their own bookings, admins can view any
-//        if (authentication.getAuthorities().stream().noneMatch(auth -> auth.getAuthority().equals("ROLE_ADMIN"))) {
-//            CustomUserDetails userDetails = (CustomUserDetails) authentication.getPrincipal();
-//            if (!userDetails.getUserId().equals(userId)) {
-//                return ResponseEntity.forbidden().build();
-//            }
-//        }
-//        
-//        List<Booking> bookings = bookingService.getBookingsByUserId(userId);
-//        return ResponseEntity.ok(bookings);
-//    }
-
-    // ====== Thymeleaf View Routes ======
-
-    // Show booking form for a specific room
-    @PreAuthorize("hasRole('CUSTOMER')")
-    @GetMapping("/book/{roomId}")
-    public String showBookingForm(@PathVariable Long roomId, Model model, Authentication authentication) {
-        try {
-            Room room = roomService.getRoomById(roomId);
-            
-            // Get the current user's ID
-            CustomUserDetails userDetails = (CustomUserDetails) authentication.getPrincipal();
-            Long userId = userDetails.getUserId();
-            
-            BookingRequestDTO bookingRequest = new BookingRequestDTO();
-            bookingRequest.setRoomId(roomId);
-            bookingRequest.setUserId(userId);
-            
-            model.addAttribute("room", room);
-            model.addAttribute("bookingRequest", bookingRequest);
-            model.addAttribute("paymentMethods", PaymentMethod.values());
-            model.addAttribute("today", LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE));
-            
-            return "booking/book-room"; // templates/booking/book-room.html
-        } catch (RuntimeException e) {
-            model.addAttribute("error", "Room not found");
-            return "redirect:/rooms/view";
-        }
-    }
-
-    // Process booking form submission
-    @PreAuthorize("hasRole('CUSTOMER')")
-    @PostMapping("/book")
-    public String processBooking(@Valid @ModelAttribute("bookingRequest") BookingRequestDTO request,
-                               BindingResult result, Model model, Authentication authentication,
-                               RedirectAttributes redirectAttributes) {
-        
-        if (result.hasErrors()) {
-            try {
-                Room room = roomService.getRoomById(request.getRoomId());
-                model.addAttribute("room", room);
-                model.addAttribute("paymentMethods", PaymentMethod.values());
-                model.addAttribute("today", LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE));
-                return "booking/book-room";
-            } catch (RuntimeException e) {
-                redirectAttributes.addFlashAttribute("error", "Room not found");
-                return "redirect:/rooms/view";
-            }
-        }
-
-        try {
-            // Verify the user is booking for themselves
-            CustomUserDetails userDetails = (CustomUserDetails) authentication.getPrincipal();
-            if (!userDetails.getUserId().equals(request.getUserId())) {
-                throw new RuntimeException("You can only book for yourself");
-            }
-
-            Booking booking = bookingService.createBooking(
-                request.getUserId(),
-                request.getRoomId(),
-                request.getCheckIn(),
-                request.getCheckOut(),
-                request.getPaymentMethod()
+                bookingRequest.getUserId(),
+                bookingRequest.getRoomId(),
+                bookingRequest.getCheckIn(),
+                bookingRequest.getCheckOut(),
+                bookingRequest.getPaymentMethod()
             );
 
-            redirectAttributes.addFlashAttribute("booking", booking);
-            redirectAttributes.addFlashAttribute("success", "Booking created successfully!");
-            return "redirect:/bookings/confirmation/" + booking.getId();
-            
-        } catch (RuntimeException e) {
-            try {
-                Room room = roomService.getRoomById(request.getRoomId());
-                model.addAttribute("room", room);
-                model.addAttribute("paymentMethods", PaymentMethod.values());
-                model.addAttribute("today", LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE));
-                model.addAttribute("bookingError", e.getMessage());
-                return "booking/book-room";
-            } catch (RuntimeException roomError) {
-                redirectAttributes.addFlashAttribute("error", "Room not found");
-                return "redirect:/rooms/view";
-            }
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Booking created successfully");
+            response.put("booking", booking);
+            response.put("numberOfNights", bookingRequest.getNumberOfNights());
+
+            return ResponseEntity.status(HttpStatus.CREATED).body(response);
+
+        } catch (Exception e) {
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage());
+
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
         }
     }
 
-    // Show booking confirmation page
-    @PreAuthorize("hasAnyRole('CUSTOMER', 'ADMIN')")
-    @GetMapping("/confirmation/{bookingId}")
-    public String showBookingConfirmation(@PathVariable Long bookingId, Model model, Authentication authentication) {
+    /**
+     * Get current user's bookings (NEW ENDPOINT TO MATCH SECURITY CONFIG)
+     */
+    @GetMapping("/my")
+    public ResponseEntity<?> getMyBookings(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
         try {
-            Booking booking = bookingService.getBookingById(bookingId);
-            
-            // Customers can only view their own booking confirmations
-            if (authentication.getAuthorities().stream().noneMatch(auth -> auth.getAuthority().equals("ROLE_ADMIN"))) {
-                CustomUserDetails userDetails = (CustomUserDetails) authentication.getPrincipal();
-                if (!userDetails.getUserId().equals(booking.getUser().getId())) {
-                    return "redirect:/customer/dashboard";
-                }
+            // Get current authenticated user
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            String userEmail = authentication.getName();
+            User currentUser = userService.findByEmail(userEmail);
+
+            if (size > 0) {
+                // Paginated response
+                Pageable pageable = PageRequest.of(page, size);
+                Page<Booking> bookings = bookingService.getBookingsByUserId(currentUser.getId(), pageable);
+
+                Map<String, Object> response = new HashMap<>();
+                response.put("success", true);
+                response.put("bookings", bookings.getContent());
+                response.put("totalElements", bookings.getTotalElements());
+                response.put("totalPages", bookings.getTotalPages());
+                response.put("currentPage", bookings.getNumber());
+                response.put("userId", currentUser.getId());
+
+                return ResponseEntity.ok(response);
+            } else {
+                // Non-paginated response
+                List<Booking> bookings = bookingService.getBookingsByUserId(currentUser.getId());
+
+                Map<String, Object> response = new HashMap<>();
+                response.put("success", true);
+                response.put("bookings", bookings);
+                response.put("userId", currentUser.getId());
+
+                return ResponseEntity.ok(response);
             }
-            
-            long nights = ChronoUnit.DAYS.between(booking.getCheckInDate(), booking.getCheckOutDate());
-            
-            model.addAttribute("booking", booking);
-            model.addAttribute("nights", nights);
-            return "booking/confirmation"; // templates/booking/confirmation.html
-        } catch (RuntimeException e) {
-            model.addAttribute("error", "Booking not found");
-            return "redirect:/customer/dashboard";
+
+        } catch (Exception e) {
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage());
+
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }
     }
 
-    // Admin view - All bookings
-    @PreAuthorize("hasRole('ADMIN')")
-    @GetMapping("/admin")
-    public String viewAllBookingsAdmin(Model model) {
-        List<Booking> bookings = bookingService.getAllBookings();
-        model.addAttribute("bookings", bookings);
-        return "booking/admin-bookings"; // templates/booking/admin-bookings.html
-    }
-
-    // Admin view - Booking details
-    @PreAuthorize("hasRole('ADMIN')")
-    @GetMapping("/admin/{id}")
-    public String viewBookingDetailsAdmin(@PathVariable Long id, Model model) {
+    /**
+     * Cancel current user's booking (NEW ENDPOINT FOR CONVENIENCE)
+     */
+    @DeleteMapping("/my/{id}")
+    public ResponseEntity<?> cancelMyBooking(@PathVariable Long id) {
         try {
-            Booking booking = bookingService.getBookingById(id);
-            long days = ChronoUnit.DAYS.between(booking.getCheckInDate(), booking.getCheckOutDate());
-            model.addAttribute("booking", booking);
-            model.addAttribute("days", days);
-            return "booking/booking-details"; // templates/booking/booking-details.html
-        } catch (RuntimeException e) {
-            model.addAttribute("error", "Booking not found");
-            return "redirect:/bookings/admin";
+            // Get current authenticated user
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            String userEmail = authentication.getName();
+            User currentUser = userService.findByEmail(userEmail);
+
+            bookingService.cancelBooking(id, currentUser.getId());
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Booking cancelled successfully");
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage());
+
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
         }
     }
 
-    // Customer view - Their bookings
-    @PreAuthorize("hasRole('CUSTOMER')")
-    @GetMapping("/my-bookings")
-    public String viewMyBookings(Model model, Authentication authentication) {
-        CustomUserDetails userDetails = (CustomUserDetails) authentication.getPrincipal();
-        List<Booking> bookings = bookingService.getBookingsByUserId(userDetails.getUserId());
-        
-        model.addAttribute("bookings", bookings);
-        model.addAttribute("user", userDetails.getUser());
-        return "booking/my-bookings"; // templates/booking/my-bookings.html
-    }
-
-    // Customer view - Specific booking details
-    @PreAuthorize("hasRole('CUSTOMER')")
-    @GetMapping("/my-bookings/{id}")
-    public String viewMyBookingDetails(@PathVariable Long id, Model model, Authentication authentication) {
+    /**
+     * Get all bookings (Admin only)
+     */
+    @GetMapping
+    public ResponseEntity<?> getAllBookings(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
         try {
-            Booking booking = bookingService.getBookingById(id);
-            CustomUserDetails userDetails = (CustomUserDetails) authentication.getPrincipal();
-            
-            // Verify the booking belongs to the current user
-            if (!userDetails.getUserId().equals(booking.getUser().getId())) {
-                return "redirect:/bookings/my-bookings";
-            }
-            
-            long nights = ChronoUnit.DAYS.between(booking.getCheckInDate(), booking.getCheckOutDate());
-            
-            model.addAttribute("booking", booking);
-            model.addAttribute("nights", nights);
-            return "booking/my-booking-details"; // templates/booking/my-booking-details.html
-        } catch (RuntimeException e) {
-            model.addAttribute("error", "Booking not found");
-            return "redirect:/bookings/my-bookings";
+            Pageable pageable = PageRequest.of(page, size);
+            Page<Booking> bookings = bookingService.getAllBookings(pageable);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("bookings", bookings.getContent());
+            response.put("totalElements", bookings.getTotalElements());
+            response.put("totalPages", bookings.getTotalPages());
+            response.put("currentPage", bookings.getNumber());
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage());
+
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }
     }
 
-   
-    // Search bookings (Admin only)
-    @PreAuthorize("hasRole('ADMIN')")
-    @GetMapping("/search")
-    public String searchBookings(@RequestParam(required = false) String searchTerm,
-                               @RequestParam(required = false) String startDate,
-                               @RequestParam(required = false) String endDate,
-                               Model model) {
-        List<Booking> bookings;
-        
-        if (searchTerm != null && !searchTerm.trim().isEmpty()) {
-            // You would implement search in BookingService
-            bookings = bookingService.getAllBookings(); // Placeholder
-        } else {
-            bookings = bookingService.getAllBookings();
-        }
-        
-        model.addAttribute("bookings", bookings);
-        model.addAttribute("searchTerm", searchTerm);
-        return "booking/search-bookings"; // templates/booking/search-bookings.html
-    }
-
-    // Cancel booking (Customer only for their own bookings)
-    @PreAuthorize("hasRole('CUSTOMER')")
-    @PostMapping("/cancel/{id}")
-    public String cancelBooking(@PathVariable Long id, Authentication authentication, RedirectAttributes redirectAttributes) {
+    /**
+     * Get booking by ID
+     */
+    @GetMapping("/{id}")
+    public ResponseEntity<?> getBookingById(@PathVariable Long id) {
         try {
             Booking booking = bookingService.getBookingById(id);
-            CustomUserDetails userDetails = (CustomUserDetails) authentication.getPrincipal();
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("booking", booking);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage());
+
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+        }
+    }
+
+    /**
+     * Get user's bookings by user ID (Admin can access any user, customers need proper authorization)
+     */
+    @GetMapping("/user/{userId}")
+    public ResponseEntity<?> getUserBookings(
+            @PathVariable Long userId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        try {
+            // Additional security check for customers
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            String userEmail = authentication.getName();
+            User currentUser = userService.findByEmail(userEmail);
             
-            // Verify the booking belongs to the current user
-            if (!userDetails.getUserId().equals(booking.getUser().getId())) {
-                redirectAttributes.addFlashAttribute("error", "You can only cancel your own bookings");
-                return "redirect:/bookings/my-bookings";
+            // Customers can only access their own bookings
+            if (currentUser.getRole().name().equals("CUSTOMER") && !currentUser.getId().equals(userId)) {
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("success", false);
+                errorResponse.put("message", "Access denied: You can only view your own bookings");
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
             }
-            
-            // Check if booking can be cancelled (e.g., not in the past)
-            if (booking.getCheckInDate().isBefore(LocalDate.now())) {
-                redirectAttributes.addFlashAttribute("error", "Cannot cancel past bookings");
-                return "redirect:/bookings/my-bookings";
+
+            if (size > 0) {
+                // Paginated response
+                Pageable pageable = PageRequest.of(page, size);
+                Page<Booking> bookings = bookingService.getBookingsByUserId(userId, pageable);
+
+                Map<String, Object> response = new HashMap<>();
+                response.put("success", true);
+                response.put("bookings", bookings.getContent());
+                response.put("totalElements", bookings.getTotalElements());
+                response.put("totalPages", bookings.getTotalPages());
+                response.put("currentPage", bookings.getNumber());
+
+                return ResponseEntity.ok(response);
+            } else {
+                // Non-paginated response
+                List<Booking> bookings = bookingService.getBookingsByUserId(userId);
+
+                Map<String, Object> response = new HashMap<>();
+                response.put("success", true);
+                response.put("bookings", bookings);
+
+                return ResponseEntity.ok(response);
             }
+
+        } catch (Exception e) {
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage());
+
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
+
+    /**
+     * Cancel a booking
+     */
+    @DeleteMapping("/{id}/user/{userId}")
+    public ResponseEntity<?> cancelBooking(@PathVariable Long id, @PathVariable Long userId) {
+        try {
+            // Additional security check for customers
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            String userEmail = authentication.getName();
+            User currentUser = userService.findByEmail(userEmail);
             
-          
+            // Customers can only cancel their own bookings
+            if (currentUser.getRole().name().equals("CUSTOMER") && !currentUser.getId().equals(userId)) {
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("success", false);
+                errorResponse.put("message", "Access denied: You can only cancel your own bookings");
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
+            }
+
+            bookingService.cancelBooking(id, userId);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Booking cancelled successfully");
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage());
+
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+        }
+    }
+
+    /**
+     * Admin cancel booking (without user validation)
+     */
+    @DeleteMapping("/{id}/admin")
+    public ResponseEntity<?> adminCancelBooking(@PathVariable Long id) {
+        try {
+            bookingService.cancelBooking(id);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Booking cancelled by admin successfully");
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage());
+
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+        }
+    }
+
+    /**
+     * Get available rooms for date range (ENHANCED WITH ACTUAL AVAILABILITY LOGIC)
+     */
+    @GetMapping("/available-rooms")
+    public ResponseEntity<?> getAvailableRooms(
+            @RequestParam String checkIn,
+            @RequestParam String checkOut) {
+        try {
+            LocalDate checkInDate = LocalDate.parse(checkIn);
+            LocalDate checkOutDate = LocalDate.parse(checkOut);
+
+            // Use the booking service to get truly available rooms
+            List<Room> availableRooms = bookingService.getAvailableRooms(checkInDate, checkOutDate);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("availableRooms", availableRooms);
+            response.put("checkIn", checkInDate);
+            response.put("checkOut", checkOutDate);
+            response.put("numberOfNights", java.time.temporal.ChronoUnit.DAYS.between(checkInDate, checkOutDate));
+            response.put("totalRoomsAvailable", availableRooms.size());
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage());
+
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+        }
+    }
+
+    /**
+     * Check room availability and get price
+     */
+    @GetMapping("/check-availability")
+    public ResponseEntity<?> checkRoomAvailability(
+            @RequestParam Long roomId,
+            @RequestParam String checkIn,
+            @RequestParam String checkOut) {
+        try {
+            LocalDate checkInDate = LocalDate.parse(checkIn);
+            LocalDate checkOutDate = LocalDate.parse(checkOut);
+
+            boolean available = bookingService.isRoomAvailable(roomId, checkInDate, checkOutDate);
+            double totalAmount = 0.0;
             
-            redirectAttributes.addFlashAttribute("success", "Booking cancelled successfully");
-            return "redirect:/bookings/my-bookings";
-        } catch (RuntimeException e) {
-            redirectAttributes.addFlashAttribute("error", "Booking not found");
-            return "redirect:/bookings/my-bookings";
+            if (available) {
+                totalAmount = bookingService.calculateTotalAmount(roomId, checkInDate, checkOutDate);
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("available", available);
+            response.put("totalAmount", totalAmount);
+            response.put("roomId", roomId);
+            response.put("checkIn", checkInDate);
+            response.put("checkOut", checkOutDate);
+            response.put("numberOfNights", java.time.temporal.ChronoUnit.DAYS.between(checkInDate, checkOutDate));
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage());
+
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+        }
+    }
+
+    /**
+     * Validate booking request (utility endpoint)
+     */
+    @PostMapping("/validate")
+    public ResponseEntity<?> validateBookingRequest(@Valid @RequestBody BookingRequestDTO bookingRequest) {
+        try {
+            // The validation is handled by @Valid annotation
+            // If we reach here, the validation passed
+            
+            // Additional business validation
+            boolean roomAvailable = bookingService.isRoomAvailable(
+                bookingRequest.getRoomId(), 
+                bookingRequest.getCheckIn(), 
+                bookingRequest.getCheckOut()
+            );
+            
+            double totalAmount = bookingService.calculateTotalAmount(
+                bookingRequest.getRoomId(), 
+                bookingRequest.getCheckIn(), 
+                bookingRequest.getCheckOut()
+            );
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("valid", roomAvailable);
+            response.put("totalAmount", totalAmount);
+            response.put("numberOfNights", bookingRequest.getNumberOfNights());
+            response.put("message", roomAvailable ? "Booking request is valid" : "Room is not available for selected dates");
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("valid", false);
+//            response.put("message", e.getMessage());
+
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
         }
     }
 }

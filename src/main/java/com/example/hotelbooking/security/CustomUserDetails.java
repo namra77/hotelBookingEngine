@@ -9,20 +9,18 @@ import java.util.Collection;
 import java.util.Collections;
 
 public class CustomUserDetails implements UserDetails {
-    
+
     private final User user;
-    
-    
+
     public CustomUserDetails(User user) {
         this.user = user;
     }
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        
-        return Collections.singletonList(
-            new SimpleGrantedAuthority("ROLE_" + user.getRole().name())
-        );
+        // Convert role to Spring Security authority format (ROLE_ADMIN, ROLE_CUSTOMER)
+        String roleWithPrefix = "ROLE_" + user.getRole().name();
+        return Collections.singletonList(new SimpleGrantedAuthority(roleWithPrefix));
     }
 
     @Override
@@ -32,27 +30,10 @@ public class CustomUserDetails implements UserDetails {
 
     @Override
     public String getUsername() {
-        return user.getEmail(); // Using email as username
+        // Use email as username for authentication
+        return user.getEmail();
     }
 
-    // CUSTOM METHODS for accessing user data
-    public Long getUserId() {
-        return user.getId();
-    }
-    
-    public User getUser() {
-        return user;
-    }
-    
-    public String getFullName() {
-        return user.getFullName();
-    }
-    
-    public Double getAccountBalance() {
-        return user.getAccountBalance();
-    }
-
-    // ACCOUNT STATUS METHODS - Default to true, customize as needed
     @Override
     public boolean isAccountNonExpired() {
         return true;
@@ -70,6 +51,11 @@ public class CustomUserDetails implements UserDetails {
 
     @Override
     public boolean isEnabled() {
-        return true; // You could add an 'enabled' field to User entity if needed
+        return true;
+    }
+
+    // Getter to access the underlying User object
+    public User getUser() {
+        return user;
     }
 }
